@@ -77,4 +77,4 @@ This will tell terraform to use the public and private key combination to for an
 
 Now by the end of successfule execution of the terraform command we will have kubernetes controlplane running, we can simply add worker node later on to the cluster.
 
-**Note: If for some reasone you cannot apply the canal manifest. Just ssh to VM's IP and apply the manifest manually.**
+**Note: If for some reason terraform fails to apply the canal manifest. Just ssh to VM's IP and apply the manifest manually.**
