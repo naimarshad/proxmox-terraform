@@ -1,0 +1,130 @@
+---
+- name: Install and configure Kubernetes cluster
+  hosts: all
+  become: true
+  gather_facts: true
+
+  tasks:
+
+    - name: Create a empty file for containerd module.
+      copy:
+        content: ""
+        dest: /etc/modules-load.d/containerd.conf
+        force: no
+
+    - name: Configure module for containerd.
+      blockinfile:
+        path: /etc/modules-load.d/containerd.conf 
+        block: |
+            overlay
+            br_netfilter
+
+
+    # - name: Load kernel modules without boot.
+    #   command: modprobe overlay && modprobe br_netfilter           
+
+    - name: Create a empty file for kubernetes sysctl params.
+      copy:
+        content: ""
+        dest: /etc/sysctl.d/99-kubernetes-cri.conf
+        force: no
+
+    - name: Configure sysctl params for Kubernetes.
+      lineinfile:
+        path: /etc/sysctl.d/99-kubernetes-cri.conf 
+        line: "{{ item }}"
+      with_items:
+        - 'net.bridge.bridge-nf-call-iptables  = 1'
+        - 'net.ipv4.ip_forward                 = 1'
+        - 'net.bridge.bridge-nf-call-ip6tables = 1'
+
+    - name: Apply sysctl params without reboot.
+      command: sysctl --system 
+
+    - name: Wait for /var/lib/dpkg/lock-frontend to be released 
+      shell: while lsof /var/lib/dpkg/lock-frontend ; do sleep 10; done;
+
+    - name: Install containerd and dependencies
+      apt:
+        lock_timeout: 120 
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+          - containerd
+        state: present
+
+    - name: Crate containerd directory
+      file: 
+        path: /etc/containerd
+        state: directory
+        mode: '0755'
+
+    - name: Generate default conainerd file
+      shell: "containerd config default > /etc/containerd/config.toml"
+
+    - name: Set Cgroup driver to systemd
+      lineinfile:
+        path: /etc/containerd/config.toml
+        regexp: '^SystemdCgroup = '
+        line: SystemdCgroup = true
+
+    - name: Enable containerd service, and start it.
+      systemd: 
+        name: containerd
+        state: restarted
+        enabled: yes
+        daemon-reload: yes
+
+    - name: Add Kubernetes apt repository and GPC key
+      apt_key:
+        url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+        state: present
+
+    - name: Add Kubernetes apt repository
+      apt_repository:
+        repo: deb https://apt.kubernetes.io/ kubernetes-xenial main
+        state: present
+
+    - name: Add the dummy module
+      modprobe:
+        name: br_netfilter
+        state: present        
+
+    - name: Wait for /var/lib/dpkg/lock-frontend to be released 
+      shell: while lsof /var/lib/dpkg/lock-frontend ; do sleep 10; done;
+
+    - name: Install Kubernetes packages
+      apt:
+        lock_timeout: 120
+        update_cache: yes
+        name:
+          - kubelet=1.26.0-00
+          - kubeadm=1.26.0-00
+          - kubectl=1.26.0-00
+        state: present
+
+    - name: Initialize Kubernetes cluster with kubeadm
+      become: yes
+      command: kubeadm init --pod-network-cidr=10.244.0.0/16 --kubernetes-version=1.26.0 --ignore-preflight-errors=NumCPU
+
+    - name: Crate .kube directory
+      file: 
+        path: /home/ubuntu/.kube/
+        state: directory
+        mode: '0755'
+
+    - name: Copy kubeconfig to regular user's home directory
+      become: yes
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /home/{{ ansible_user }}/.kube/config
+        remote_src: yes
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+
+    - name: Install Canal network plugin
+      become: yes
+      command: kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.25.1/manifests/canal.yaml
