@@ -57,7 +57,7 @@ provisioner "remote-exec" {
 }
 
   provisioner "local-exec" {
-    command = "ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -v -u ubuntu -i 192.168.8.91, --private-key ${var.pvt_key} -e 'pub_key=${var.pub_key}' install-kubernetes-kubeadm.yaml"
+    command = "ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -u ubuntu -i 192.168.8.91, --private-key ${var.pvt_key} -e 'pub_key=${var.pub_key}' install-kubernetes-kubeadm.yaml"
 }
 
 }
